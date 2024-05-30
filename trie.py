@@ -215,6 +215,7 @@ class Trie:
             for line in f:
                 self += line.strip()
 
+
     def __str__(self):
 
         """
@@ -320,6 +321,91 @@ class Trie:
             words.append("...")
         return f"<trie {self.size} words {words}>"
 
+
+    def _search(self, prefix : str, key : str, curr : {}) -> (...):
+
+        if not key:
+            if "." in curr:
+                yield prefix
+        else:
+            if key[0] == '?':
+                for ch in sorted(curr):
+                    if ch != '.':
+                        yield from self._search(prefix + ch, key[1:], curr[ch])
+            elif key[0] in curr:
+                yield from self._search(prefix + key[0], key[1:], curr[key[0]])
+
+    def search(self, key : str) -> [str,...]:
+
+        """
+        Search the trie for any matching words a ? means a wildcard that matches anything
+
+        :param word: The partial word to search for (? indicates any character, so f?n matches fan, fin, fun)
+        :return: Generator returning words that match the wildcard specification
+        >>> trie = Trie()
+        >>> trie += "hello"
+        >>> trie += "world"
+        >>> [word for word in trie.search("h??l?")]
+        ['hello']
+        >>> [word for word in trie.search("???l?")]
+        ['hello', 'world']
+        """
+
+        yield from self._search("", key, self.words)
+
+    def _spellcheck(self, prefix : str, key : str, diff : int, curr : {}):
+        if diff > 3:
+            return
+        if not key:
+            if "." in curr:
+                yield diff, prefix
+        else:
+            expect = key[0]
+            if len(key) > 1:
+                nextCh = key[1]
+                if nextCh in curr and expect in curr[nextCh]:
+                    # Transpose the characters
+                    yield from self._spellcheck(prefix + nextCh + expect, key[2:], diff + 1, curr[nextCh][expect])
+                # Delete character
+                yield from self._spellcheck(prefix, key[1:], diff + 1, curr)
+            else:
+                yield from self._spellcheck(prefix, key[1:], diff + 1, curr)
+            for ch in sorted(curr):
+                if ch != '.':
+                    # Insert a character
+                    yield from self._spellcheck(prefix + ch, key, diff + 1, curr[ch])
+                    if ch != expect:
+                        # Different letter (difference 1)
+                        yield from self._spellcheck(prefix + ch, key[1:], diff + 1, curr[ch])
+                    else:
+                        # Expected letter (difference 0)
+                        yield from self._spellcheck(prefix + ch, key[1:], diff, curr[ch])
+
+    def spellcheck(self, word : str):
+
+        """
+        Return a list of words based on their Levenshtein distance (+1 for each letter change,
+        insertion, deletion, transposition)
+
+        :param word: The word to check
+        :return: List with tuples of distance and alternate spellings
+        >>> trie = Trie()
+        >>> trie += "hello"
+        >>> trie += "help"
+        >>> trie += "hell"
+        >>> trie += "shell"
+        >>> trie += "shall"
+        >>> trie.spellcheck("hello")
+        [(0, 'hello'), (1, 'hell'), (2, 'help'), (2, 'shell'), (3, 'shall')]
+        """
+        maybe = {}
+        for (diff, word) in self._spellcheck("", word, 0, self.words):
+            maybe[word] = min(maybe.get(word, 100), diff)
+        possible = [(item[1], item[0]) for item in maybe.items()]
+        possible.sort()
+        return possible
+
+
 def main():
     trie = Trie()
     trie.load("words850.txt")
@@ -334,6 +420,12 @@ def main():
     print(len(trie))
     for word in trie.prefix("fi"):
         print(word)
+    print("Search:")
+    for word in trie.search("f?r?"):
+        print(word)
+    print("Spellcheck:")
+    for diff, word in trie.spellcheck("fork"):
+        print(diff, word)
 
 
 if __name__ == "__main__":
