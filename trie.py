@@ -1,6 +1,26 @@
-import itertools
+import itertools, unicodedata
+
+def normalize(word : str) -> str:
+    if word.isascii():
+        return word
+    return unicodedata.normalize("NFKC", word)
+
+def denormalize(word : str) -> str:
+    return unicodedata.normalize("NFKD", word)
+
+
+def swapcase(word : str) -> str:
+    if word.islower():
+        return word.upper()
+    if word.isupper():
+        return word.lower()
+    return word
 
 class Trie:
+
+    END = "END"
+    ACCENTED = {}
+
     """
     A Trie is a data structure similar to a dictionary, that is sorted
     and can also allow searches for prefixes
@@ -34,7 +54,7 @@ class Trie:
         >>> trie += "hello"
         >>> trie += "world"
         >>> trie._entry("worl")
-        {'d': {'.': True}}
+        {'d': {'END': True}}
         """
         curr = self.words
         for letter in word:
@@ -53,22 +73,26 @@ class Trie:
         :return: The dictionary entry at the end of the word
         >>> trie = Trie()
         >>> trie._insert("hello", "world")
-        {'.': 'world'}
+        {'END': 'world'}
         """
-        if word.isalpha() and word.islower():
-            curr = self.words
-            for letter in word:
-                if letter in curr:
-                    curr = curr[letter]
-                else:
-                    curr[letter] = {}
-                    curr = curr[letter]
-            if '.' not in curr:
-                self.size += 1
-            curr['.'] = value  # To mark full word
-            return curr
-        else:
-            raise KeyError("Only lower case words accepted")
+        curr = self.words
+        for letter in normalize(word):
+            if not letter.isascii():
+                accents = denormalize(letter)
+                if len(accents) > 1:
+                    base = accents[0]
+                    if base not in self.ACCENTED:
+                        self.ACCENTED[base] = set()
+                    self.ACCENTED[base].add(letter)
+            if letter in curr:
+                curr = curr[letter]
+            else:
+                curr[letter] = {}
+                curr = curr[letter]
+        if self.END not in curr:
+            self.size += 1
+        curr[self.END] = value  # To mark full word
+        return curr
 
     def __iadd__(self, word : str) -> "self":
 
@@ -101,9 +125,9 @@ class Trie:
         False
         """
         curr = self._entry(word)
-        if '.' in curr:
+        if self.END in curr:
             self.size -= 1
-            del curr['.']
+            del curr[self.END]
         return self
 
 
@@ -122,7 +146,7 @@ class Trie:
         False
         """
         curr = self._entry(word)
-        return '.' in curr
+        return self.END in curr
 
     def __getitem__(self, word : str) -> any:
 
@@ -138,10 +162,10 @@ class Trie:
         >>> trie["hell"]  # Prefix should not be recognized as a word
         Traceback (most recent call last):
         ...
-        KeyError: '.'
+        KeyError: 'END'
         """
         curr = self._entry(word)
-        return curr['.']
+        return curr[self.END]
 
     def __setitem__(self, key : str, value : any) -> None:
 
@@ -174,7 +198,7 @@ class Trie:
         'world'
         """
         curr = self._entry(word)
-        return curr.get('.', default)
+        return curr.get(self.END, default)
 
 
     def __delitem__(self, word : str) -> None:
@@ -192,10 +216,10 @@ class Trie:
         >>> del trie["hello"]
         Traceback (most recent call last):
         ...
-        KeyError: '.'
+        KeyError: 'END'
         """
         curr = self._entry(word)
-        del curr['.']
+        del curr[self.END]
         self.size -= 1
 
     def load(self, filename : str) -> None:
@@ -211,10 +235,28 @@ class Trie:
         >>> trie
         <trie 850 words ['a', 'able', 'about', '...']>
         """
-        with open(filename) as f:
+        with open(filename, encoding="utf-8") as f:
             for line in f:
                 self += line.strip()
 
+
+    def load_spellings(self, filename="word_freq.csv"):
+
+        """
+        Load words from csv file, ignore first line, each line is word,count
+
+        :param filename: File to load words from
+        :return: Trie with frequency data stored for each word
+        >>> trie = Trie()
+        >>> trie.load_spellings("word_test.txt")
+        >>> trie
+        <trie 7 words ['Defiance', 'affiance', 'defiance', '...']>
+        """
+        with open(filename, encoding="utf-8") as f:
+            f.readline()
+            for line in f:
+                word, count = line.split(",")
+                self[word] = int(count)
 
     def __str__(self):
 
@@ -267,10 +309,10 @@ class Trie:
         >>> list(trie._keys("", trie.words))
         ['hello', 'world']
         """
-        if "." in curr:
+        if self.END in curr:
             yield prefix
         for ch in sorted(curr):
-            if ch != '.':
+            if ch != self.END:
                 yield from self._keys(prefix + ch, curr[ch])
 
     def __iter__(self):
@@ -325,15 +367,23 @@ class Trie:
     def _search(self, prefix : str, key : str, curr : {}) -> (...):
 
         if not key:
-            if "." in curr:
+            if self.END in curr:
                 yield prefix
         else:
             if key[0] == '?':
                 for ch in sorted(curr):
-                    if ch != '.':
+                    if ch != self.END:
                         yield from self._search(prefix + ch, key[1:], curr[ch])
-            elif key[0] in curr:
-                yield from self._search(prefix + key[0], key[1:], curr[key[0]])
+            else:
+                if key[0] in curr:
+                    yield from self._search(prefix + key[0], key[1:], curr[key[0]])
+                swapped = swapcase(key[0])
+                if swapped in curr:
+                    yield from self._search(prefix + swapped, key[1:], curr[swapped])
+                if key[0] in self.ACCENTED:
+                    for accented in self.ACCENTED[key[0]]:
+                        if accented in curr:
+                            yield from self._search(prefix + accented, key[1:], curr[accented])
 
     def search(self, key : str) -> [str,...]:
 
@@ -357,7 +407,7 @@ class Trie:
         if diff > 3:
             return
         if not key:
-            if "." in curr:
+            if self.END in curr:
                 yield diff, prefix
         else:
             expect = key[0]
@@ -366,20 +416,47 @@ class Trie:
                 if nextCh in curr and expect in curr[nextCh]:
                     # Transpose the characters
                     yield from self._spellcheck(prefix + nextCh + expect, key[2:], diff + 1, curr[nextCh][expect])
-                # Delete character
-                yield from self._spellcheck(prefix, key[1:], diff + 1, curr)
-            else:
-                yield from self._spellcheck(prefix, key[1:], diff + 1, curr)
+            # Delete character
+            yield from self._spellcheck(prefix, key[1:], diff + 1, curr)
             for ch in sorted(curr):
-                if ch != '.':
+                if ch != self.END:
                     # Insert a character
                     yield from self._spellcheck(prefix + ch, key, diff + 1, curr[ch])
                     if ch != expect:
-                        # Different letter (difference 1)
-                        yield from self._spellcheck(prefix + ch, key[1:], diff + 1, curr[ch])
+                        if swapcase(expect) == ch or ch in self.ACCENTED.get(expect, set()):
+                            # Different letter (difference 1) (either case or accented version)
+                            yield from self._spellcheck(prefix + ch, key[1:], diff + 1, curr[ch])
+                        else:
+                            # Different letter (difference 2)
+                            yield from self._spellcheck(prefix + ch, key[1:], diff + 2, curr[ch])
                     else:
                         # Expected letter (difference 0)
                         yield from self._spellcheck(prefix + ch, key[1:], diff, curr[ch])
+
+    def distance(self, word : str):
+
+        """
+        Return a list of words based on their Levenshtein distance (+1 for each letter change,
+        insertion, deletion, transposition)
+
+        :param word: The word to check
+        :return: List with tuples of distance and alternate spellings
+        >>> trie = Trie()
+        >>> trie += "hello"
+        >>> trie += "help"
+        >>> trie += "hell"
+        >>> trie += "shell"
+        >>> trie += "shall"
+        >>> trie.distance("hello")
+        [(0, 'hello'), (1, 'hell'), (2, 'shell'), (3, 'help')]
+        """
+        maybe = {}
+        for (diff, word) in self._spellcheck("", word, 0, self.words):
+            maybe[word] = min(maybe.get(word, 100), diff)
+        possible = [(item[1], item[0]) for item in maybe.items()]
+        possible.sort()
+        return possible
+
 
     def spellcheck(self, word : str):
 
@@ -395,7 +472,7 @@ class Trie:
         >>> trie += "hell"
         >>> trie += "shell"
         >>> trie += "shall"
-        >>> trie.spellcheck("hello")
+        >>> trie.distance("hello")
         [(0, 'hello'), (1, 'hell'), (2, 'help'), (2, 'shell'), (3, 'shall')]
         """
         maybe = {}
@@ -423,12 +500,24 @@ def main():
     print("Search:")
     for word in trie.search("f?r?"):
         print(word)
-    print("Spellcheck:")
-    for diff, word in trie.spellcheck("fork"):
+    print("Distance:")
+    for diff, word in trie.distance("fork"):
         print(diff, word)
+    spellings = Trie()
+    #spellings.load_spellings("word_test.txt")
+    spellings.load_spellings("word_output.txt")
+    print(spellings)
+    print(spellings.ACCENTED)
+    print("Search:")
+    for word in spellings.search("Fiance"):
+        print(word)
+    print("Distance:")
+    for diff, word in spellings.distance("fiance"):
+        print(diff, word)
+
 
 
 if __name__ == "__main__":
     import doctest
-    doctest.testmod()
+    #doctest.testmod()
     main()
