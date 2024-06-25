@@ -2,14 +2,14 @@
 
 The normal Trie data structure allows you to access data with keys that consist of lower case ASCII
 characters only. This is an extended version that works with Unicode characters, although it is
-designed with European languages in mind as it includes support for accented characters where you
+designed with European languages in mind, as it includes support for accented characters where you
 can access them by using the unaccented version. It also includes full search on the keyspace for
 words in a given edit distance.
 
-It supports most of the features of the built in dictionary, but also includes an enumerator for
-words from a given prefix. A wildcard search feature, so h?ll? would find hello for example, this
-would be useful in a Wordle type game, scrabble or crossword program. It also has a search for words
-with the given edit distance, and has a dictionary of over 100,000 English language words.
+It supports most of the features of the built in dictionary but also includes an enumerator for
+words from a given prefix. A wildcard search feature, so h?ll? would find hello, for example; this
+would be useful in a Wordle type game, scrabble, or a crossword program. It also has a search for words
+with the given edit distance and has a dictionary of over 100,000 english language words.
 
 
     For example searching for fiance will return the following words and edit distances. The edit distance
